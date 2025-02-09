@@ -19,15 +19,4 @@ jobs:
           cache: true
 
       - name: Run tests
-        run: go test -v ./...
-
-      - name: Create Release
-        id: create_release
-        uses: softprops/action-gh-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          name: Release ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+        run: go test -v ./... -race -covermode=atomic -coverprofile=coverage.out
