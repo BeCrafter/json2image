@@ -1,6 +1,6 @@
 module github.com/BeCrafter/json2image
 
-go 1.23.0
+go 1.18
 
 require github.com/fogleman/gg v1.3.0
 
