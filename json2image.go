@@ -6,65 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/fogleman/gg"
 )
 
-// 修改 measureText 和 jsonToImage 函数中的字体加载部分
-func measureText(text string) (float64, float64) {
-	lines := strings.Split(text, "\n")
-	maxWidth := 0.0
-	dc := gg.NewContext(1, 1)
-
-	fontPath, err := getFontFile()
-	if err != nil {
-		log.Fatalf("警告: 加载字体失败: %v\n", err)
-		return 0, 0
-	}
-
-	dc.LoadFontFace(fontPath, 14)
-
-	for _, line := range lines {
-		w, _ := dc.MeasureString(line)
-		if w > maxWidth {
-			maxWidth = w
-		}
-	}
-
-	height := float64(len(lines)) * 20 // 每行高度20像素
-	return maxWidth + 40, height + 40  // 添加边距
-}
-
-// 添加颜色配置
-var levelColors = [][]float64{
-	{0.2, 0.6, 0.9}, // 蓝色
-	{0.8, 0.3, 0.3}, // 红色
-	{0.3, 0.7, 0.3}, // 绿色
-	{0.7, 0.3, 0.7}, // 紫色
-	{0.9, 0.6, 0.2}, // 橙色
-	{0.2, 0.7, 0.7}, // 青色
-	{0.7, 0.7, 0.2}, // 黄色
-	{0.5, 0.2, 0.8}, // 深紫色
-	{0.8, 0.4, 0.6}, // 粉色
-	{0.4, 0.5, 0.3}, // 橄榄绿
-}
-
-// 添加括号颜色配置（比对应层级颜色更浅）
-var braceLevelColors = [][]float64{
-	{0.5, 0.8, 1.0}, // 浅蓝色
-	{1.0, 0.6, 0.6}, // 浅红色
-	{0.6, 0.9, 0.6}, // 浅绿色
-	{0.9, 0.6, 0.9}, // 浅紫色
-	{1.0, 0.8, 0.5}, // 浅橙色
-	{0.5, 0.9, 0.9}, // 浅青色
-	{0.9, 0.9, 0.5}, // 浅黄色
-	{0.7, 0.5, 0.9}, // 浅深紫色
-	{0.9, 0.7, 0.8}, // 浅粉色
-	{0.7, 0.8, 0.6}, // 浅橄榄绿
-}
-
-// 修改 parseJSONWithColor 函数中的括号处理逻辑
+// ColoredLine 带颜色信息的行
 type ColoredLine struct {
 	text      string
 	level     int
@@ -76,6 +24,45 @@ type ColoredLine struct {
 	braceType []rune // 括号的类型
 }
 
+// measureText 测量文本尺寸
+func measureText(text string, config *Config) (float64, float64) {
+	lines := strings.Split(text, "\n")
+	maxWidth := 0.0
+	dc := gg.NewContext(1, 1)
+
+	fontPath, err := getFontFile(config)
+	if err != nil {
+		log.Printf("警告: 加载字体失败: %v\n", err)
+		return 0, 0
+	}
+
+	// 确保在函数结束时清理临时字体文件
+	defer func() {
+		// 只有当字体不是自定义字体时才删除临时文件
+		if config.Font.Type != FontTypeCustom {
+			if err := os.Remove(fontPath); err != nil {
+				log.Printf("警告: 清理临时字体文件失败: %v", err)
+			}
+		}
+	}()
+
+	if err := dc.LoadFontFace(fontPath, config.Font.Size); err != nil {
+		log.Printf("警告: 设置字体失败: %v", err)
+		return 0, 0
+	}
+
+	for _, line := range lines {
+		w, _ := dc.MeasureString(line)
+		if w > maxWidth {
+			maxWidth = w
+		}
+	}
+
+	height := float64(len(lines)) * config.Font.LineHeight
+	return maxWidth + config.Image.Padding*2, height + config.Image.Padding*2
+}
+
+// parseJSONWithColor 解析JSON并添加颜色信息
 func parseJSONWithColor(text string) []ColoredLine {
 	lines := strings.Split(text, "\n")
 	coloredLines := make([]ColoredLine, len(lines))
@@ -86,7 +73,6 @@ func parseJSONWithColor(text string) []ColoredLine {
 		// 查找括号位置，同时记录括号类型
 		bracePos := []int{}
 		braceType := []rune{}
-		// 直接在原始行中查找括号，不使用 trimmed
 		for pos, char := range line {
 			if char == '{' || char == '}' || char == '[' || char == ']' {
 				bracePos = append(bracePos, pos)
@@ -125,10 +111,16 @@ func parseJSONWithColor(text string) []ColoredLine {
 	return coloredLines
 }
 
-// 在 Json2Image 函数中修改绘制括号的代码
-// 将数据按照Base64保存：JsonToImage(jsonData)
-// 将数据按照图片格式输出：JsonToImage(jsonData, "output.png")
-func Json2Image(jsonData string, outputPath ...string) (string, error) {
+// Json2Image 将JSON数据转换为图片
+// 参数：
+// - jsonData: JSON字符串
+// - config: 配置选项，如果为nil则使用默认配置
+// - outputPath: 输出路径（可选），如果不提供则返回base64字符串
+func Json2Image(jsonData string, config *Config, outputPath ...string) (string, error) {
+	if config == nil {
+		config = DefaultConfig()
+	}
+
 	// 格式化 JSON
 	formattedJSON, err := formatJSON(jsonData)
 	if err != nil {
@@ -139,30 +131,50 @@ func Json2Image(jsonData string, outputPath ...string) (string, error) {
 	coloredLines := parseJSONWithColor(formattedJSON)
 
 	// 计算图片尺寸
-	width, height := measureText(formattedJSON)
+	width, height := measureText(formattedJSON, config)
 
 	// 创建画布
 	dc := gg.NewContext(int(width), int(height))
 
+	// 加载字体
+	fontPath, err := getFontFile(config)
+	if err != nil {
+		return "", fmt.Errorf("加载字体失败: %v", err)
+	}
+
+	// 确保在函数结束时清理临时字体文件
+	defer func() {
+		// 只有当字体不是自定义字体时才删除临时文件
+		if config.Font.Type != FontTypeCustom {
+			if err := os.Remove(fontPath); err != nil {
+				log.Printf("警告: 清理临时字体文件失败: %v", err)
+			}
+		}
+	}()
+
+	if err := dc.LoadFontFace(fontPath, config.Font.Size); err != nil {
+		return "", fmt.Errorf("设置字体失败: %v", err)
+	}
+
 	// 设置背景色
-	dc.SetRGB(1, 1, 1)
+	dc.SetRGB(config.Image.BackgroundColor[0], config.Image.BackgroundColor[1], config.Image.BackgroundColor[2])
 	dc.Clear()
 
 	// 绘制文本
-	y := 20.0
+	y := config.Image.Padding
 	for _, line := range coloredLines {
-		currentX := 20.0
+		currentX := config.Image.Padding
 
 		if line.isKey {
-			colorIdx := line.level % len(levelColors)
-			color := levelColors[colorIdx]
-			braceColor := braceLevelColors[colorIdx]
+			colorIdx := line.level % len(config.Color.LevelColors)
+			color := config.Color.LevelColors[colorIdx]
+			braceColor := config.Color.BraceLevelColors[colorIdx]
 
 			if line.hasBrace {
 				// 绘制前导空格
 				if line.startPos > 0 {
 					text := line.text[:line.startPos]
-					dc.SetRGB(0, 0, 0)
+					dc.SetRGB(config.Color.DefaultTextColor[0], config.Color.DefaultTextColor[1], config.Color.DefaultTextColor[2])
 					dc.DrawString(text, currentX, y)
 					width, _ := dc.MeasureString(text)
 					currentX += width
@@ -178,7 +190,7 @@ func Json2Image(jsonData string, outputPath ...string) (string, error) {
 				// 绘制冒号和空格
 				colonPos := line.startPos + line.keyLength + 2
 				text := line.text[colonPos:line.bracePos[0]]
-				dc.SetRGB(0, 0, 0)
+				dc.SetRGB(config.Color.DefaultTextColor[0], config.Color.DefaultTextColor[1], config.Color.DefaultTextColor[2])
 				dc.DrawString(text, currentX, y)
 				width, _ = dc.MeasureString(text)
 				currentX += width
@@ -191,7 +203,7 @@ func Json2Image(jsonData string, outputPath ...string) (string, error) {
 				// 原有的键值绘制逻辑保持不变
 				if line.startPos > 0 {
 					text := line.text[:line.startPos]
-					dc.SetRGB(0, 0, 0)
+					dc.SetRGB(config.Color.DefaultTextColor[0], config.Color.DefaultTextColor[1], config.Color.DefaultTextColor[2])
 					dc.DrawString(text, currentX, y)
 					width, _ := dc.MeasureString(text)
 					currentX += width
@@ -205,7 +217,7 @@ func Json2Image(jsonData string, outputPath ...string) (string, error) {
 
 				if line.startPos+line.keyLength+2 < len(line.text) {
 					remainingText := line.text[line.startPos+line.keyLength+2:]
-					dc.SetRGB(0, 0, 0)
+					dc.SetRGB(config.Color.DefaultTextColor[0], config.Color.DefaultTextColor[1], config.Color.DefaultTextColor[2])
 					dc.DrawString(remainingText, currentX, y)
 				}
 			}
@@ -216,7 +228,7 @@ func Json2Image(jsonData string, outputPath ...string) (string, error) {
 				for i, pos := range line.bracePos {
 					// 绘制括号前的文本
 					if pos > lastPos {
-						dc.SetRGB(0, 0, 0)
+						dc.SetRGB(config.Color.DefaultTextColor[0], config.Color.DefaultTextColor[1], config.Color.DefaultTextColor[2])
 						text := line.text[lastPos:pos]
 						dc.DrawString(text, currentX, y)
 						width, _ := dc.MeasureString(text)
@@ -224,8 +236,8 @@ func Json2Image(jsonData string, outputPath ...string) (string, error) {
 					}
 
 					// 使用浅色绘制括号
-					colorIdx := line.level % len(braceLevelColors)
-					braceColor := braceLevelColors[colorIdx]
+					colorIdx := line.level % len(config.Color.BraceLevelColors)
+					braceColor := config.Color.BraceLevelColors[colorIdx]
 					dc.SetRGB(braceColor[0], braceColor[1], braceColor[2])
 					braceText := string(line.braceType[i])
 					dc.DrawString(braceText, currentX, y)
@@ -236,15 +248,15 @@ func Json2Image(jsonData string, outputPath ...string) (string, error) {
 
 				// 绘制最后剩余的文本
 				if lastPos < len(line.text) {
-					dc.SetRGB(0, 0, 0)
+					dc.SetRGB(config.Color.DefaultTextColor[0], config.Color.DefaultTextColor[1], config.Color.DefaultTextColor[2])
 					dc.DrawString(line.text[lastPos:], currentX, y)
 				}
 			} else {
-				dc.SetRGB(0, 0, 0)
+				dc.SetRGB(config.Color.DefaultTextColor[0], config.Color.DefaultTextColor[1], config.Color.DefaultTextColor[2])
 				dc.DrawString(line.text, currentX, y)
 			}
 		}
-		y += 20
+		y += config.Font.LineHeight
 	}
 
 	if len(outputPath) > 0 {
@@ -261,7 +273,11 @@ func Json2Image(jsonData string, outputPath ...string) (string, error) {
 }
 
 // CropJson2Image 将裁剪后的数据转换为图片
-func CropJson2Image(jsonData string, rules []string, outputPath ...string) (string, error) {
+func CropJson2Image(jsonData string, config *Config, outputPath ...string) (string, error) {
+	if config == nil {
+		config = DefaultConfig()
+	}
+
 	var inputData map[string]interface{}
 	if str, err := formatJSON(jsonData); err != nil {
 		return "", fmt.Errorf("格式化JSON失败: %v", err)
@@ -271,10 +287,27 @@ func CropJson2Image(jsonData string, rules []string, outputPath ...string) (stri
 		}
 	}
 
-	output, err := JsonCrop(inputData, rules)
+	if len(config.CropRules) == 0 {
+		return "", fmt.Errorf("裁剪规则不能为空")
+	}
+
+	output, err := JsonCrop(inputData, config.CropRules)
 	if err != nil {
 		return "", err
 	}
 
-	return Json2Image(string(output), outputPath...)
+	return Json2Image(string(output), config, outputPath...)
+}
+
+// 以下是为了向后兼容而保留的函数，它们使用默认配置
+
+// Json2ImageDefault 使用默认配置将JSON转换为图片（向后兼容）
+func Json2ImageDefault(jsonData string, outputPath ...string) (string, error) {
+	return Json2Image(jsonData, DefaultConfig(), outputPath...)
+}
+
+// CropJson2ImageDefault 使用默认配置将裁剪后的JSON转换为图片（向后兼容）
+func CropJson2ImageDefault(jsonData string, rules []string, outputPath ...string) (string, error) {
+	config := DefaultConfig().WithCropRules(rules...)
+	return CropJson2Image(jsonData, config, outputPath...)
 }
