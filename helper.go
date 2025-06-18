@@ -17,7 +17,6 @@ const (
 	FontTypeMonaco   FontType = iota // FontTypeMonaco Monaco字体
 	FontTypeMsyh                     // FontTypeMsyh 微软雅黑字体
 	FontTypePingFang                 // FontTypePingFang 苹方字体
-	FontTypeWrjs                     // FontTypeWrjs 王壬金石字体
 	FontTypeCustom                   // FontTypeCustom 自定义字体
 )
 
@@ -213,8 +212,6 @@ func getFontFile(config *Config) (string, error) {
 		fontData = fonts.MsyhFontData
 	case FontTypePingFang:
 		fontData = fonts.PingfangscFontData
-	case FontTypeWrjs:
-		fontData = fonts.WrjsFontData
 	case FontTypeCustom:
 		if config.Font.CustomPath == "" {
 			return "", fmt.Errorf("自定义字体路径不能为空")

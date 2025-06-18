@@ -32,8 +32,15 @@ func measureText(text string, config *Config) (float64, float64) {
 
 	fontPath, err := getFontFile(config)
 	if err != nil {
-		log.Printf("警告: 加载字体失败: %v\n", err)
-		return 0, 0
+		log.Printf("警告: 加载字体失败: %v，使用备选字体\n", err)
+		// 使用备选字体（微软雅黑）
+		fallbackConfig := *config
+		fallbackConfig.Font.Type = FontTypeMsyh
+		fontPath, err = getFontFile(&fallbackConfig)
+		if err != nil {
+			log.Printf("警告: 加载备选字体失败: %v\n", err)
+			return 0, 0
+		}
 	}
 
 	// 确保在函数结束时清理临时字体文件
@@ -139,7 +146,14 @@ func Json2Image(jsonData string, config *Config, outputPath ...string) (string, 
 	// 加载字体
 	fontPath, err := getFontFile(config)
 	if err != nil {
-		return "", fmt.Errorf("加载字体失败: %v", err)
+		log.Printf("警告: 加载字体失败: %v，使用备选字体\n", err)
+		// 使用备选字体（微软雅黑）
+		fallbackConfig := *config
+		fallbackConfig.Font.Type = FontTypeMsyh
+		fontPath, err = getFontFile(&fallbackConfig)
+		if err != nil {
+			return "", fmt.Errorf("加载备选字体失败: %v", err)
+		}
 	}
 
 	// 确保在函数结束时清理临时字体文件

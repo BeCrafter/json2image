@@ -24,7 +24,6 @@ func TestGetFontFileWithDifferentTypes(t *testing.T) {
 		FontTypeMonaco,
 		FontTypeMsyh,
 		FontTypePingFang,
-		FontTypeWrjs,
 	}
 
 	for _, fontType := range fontTypes {
